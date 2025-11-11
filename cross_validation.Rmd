@@ -148,3 +148,88 @@ cv_df |>
   geom_violin()
 ```
 
+## Example: Child Growth
+
+```{r}
+growth_df = read_csv("./data/nepalese_children.csv")
+
+```
+
+Weight vs arm_c
+```{r}
+growth_df |> 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = 0.5)
+```
+
+The plots suggests some non-linearity, especially at the low end of the weight distribution
+
+```{r}
+growth_df =
+  growth_df |> 
+  mutate(
+    weight_cp7 = (weight > 7) * (weight - 7)
+  )
+```
+
+```{r}
+linear_mod = lm(armc ~ weight, growth_df)
+pwl_mod = lm(armc ~ weight + weight_cp7, growth_df)
+smooth_mod = mgcv::gam(armc ~ s(weight), data = growth_df)
+```
+
+```{r}
+growth_df |> 
+  add_predictions(linear_mod) |> 
+  ggplot(aes(x = weight, y = armc)) +
+  geom_point(alpha = .5)+
+  geom_line(aes(y= pred), color = "red")
+```
+
+```{r}
+growth_df |> 
+  gather_predictions(linear_mod, pwl_mod, smooth_mod) |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .5) +
+  geom_line(aes(y = pred), color = "red") + 
+  facet_grid(~model)
+```
+
+
+Cross validate!
+```{r}
+cv_df =
+  crossv_mc(growth_df, 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+cv_df = 
+  cv_df |> 
+  mutate(
+    linear_mod = map(train, \(df) lm(armc ~ weight, data = df)),
+    pwl_mod = map(train, \(df) lm(armc ~ weight + weight_cp7, data = df)),
+    smooth_mod = map(train, \(df) mgcv::gam(armc ~ s(weight), data = df))
+  ) |> 
+  mutate(
+    rmse_linear = map2_dbl(linear_mod, test, rmse),
+    rmse_pwl = map2_dbl(pwl_mod, test, rmse),
+    rmse_smooth = map2_dbl(smooth_mod, test, rmse),
+  )
+```
+
+
+```{r}
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) |> 
+  ggplot(aes(x= model, y = rmse)) +
+  geom_violin()
+```
+
